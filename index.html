@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soniox Real-time Speech to Text</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 720px;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    color: #f0f2f5;
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.6rem 1rem;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    font-size: 0.8rem;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #484f58;
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connecting { background: #d29922; }
+  .status-dot.connected  { background: #3fb950; }
+  .status-dot.recording  { background: #f85149; animation: pulse 1.2s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .status-text { flex: 1; color: #8b949e; }
+  .latency-badge {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    background: #21262d;
+    border-radius: 6px;
+    color: #8b949e;
+  }
+
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  button {
+    padding: 0.65rem 1.5rem;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-start { background: #238636; color: #fff; }
+  .btn-stop  { background: #da3633; color: #fff; }
+  .btn-copy  { background: #30363d; color: #e1e4e8; margin-left: auto; }
+  .btn-clear { background: #30363d; color: #e1e4e8; }
+
+  .language-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .language-row label {
+    font-size: 0.85rem;
+    color: #8b949e;
+    white-space: nowrap;
+  }
+
+  .language-select {
+    flex: 1;
+    max-width: 260px;
+    padding: 0.5rem 0.75rem;
+    background: #161b22;
+    color: #e1e4e8;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b949e' viewBox='0 0 16 16'%3E%3Cpath d='M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2rem;
+  }
+
+  .language-select:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+
+  .transcript-section {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 1.25rem;
+    min-height: 200px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .transcript-section::-webkit-scrollbar { width: 6px; }
+  .transcript-section::-webkit-scrollbar-track { background: transparent; }
+  .transcript-section::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+  .transcript-final {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: #e1e4e8;
+    display: inline;
+  }
+
+  .transcript-placeholder {
+    color: #484f58;
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 3rem 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Soniox Real-time Speech to Text</h1>
+
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Disconnected</span>
+    <span class="latency-badge" id="latencyBadge">Latency: --</span>
+  </div>
+
+  <div class="language-row">
+    <label for="langSelect">Language:</label>
+    <select class="language-select" id="langSelect">
+      <option value="">Auto-detect</option>
+      <option value="en">English</option>
+      <option value="ms">Malay</option>
+      <option value="zh">Chinese</option>
+      <option value="ta">Tamil</option>
+    </select>
+  </div>
+
+  <div class="controls">
+    <button class="btn-start" id="btnStart">Start Recording</button>
+    <button class="btn-stop" id="btnStop" disabled>Stop</button>
+    <button class="btn-clear" id="btnClear">Clear</button>
+    <button class="btn-copy" id="btnCopy">Copy</button>
+  </div>
+
+  <div class="transcript-section" id="transcriptSection">
+    <div class="transcript-placeholder" id="placeholder">Transcription will appear here...</div>
+    <span class="transcript-final" id="finalText"></span>
+  </div>
+</div>
+
+<script>
+const WORKLET_CODE = `
+class PCMProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._buffer = [];
+    this._bufferSize = 3200; // 200ms at 16kHz
+  }
+
+  process(inputs) {
+    const input = inputs[0];
+    if (!input || !input[0]) return true;
+
+    const samples = input[0];
+    for (let i = 0; i < samples.length; i++) {
+      this._buffer.push(samples[i]);
+    }
+
+    while (this._buffer.length >= this._bufferSize) {
+      const chunk = this._buffer.splice(0, this._bufferSize);
+      const int16 = new Int16Array(chunk.length);
+      for (let i = 0; i < chunk.length; i++) {
+        const s = Math.max(-1, Math.min(1, chunk[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      this.port.postMessage(int16.buffer, [int16.buffer]);
+    }
+
+    return true;
+  }
+}
+registerProcessor('pcm-processor', PCMProcessor);
+`;
+
+const $ = (sel) => document.querySelector(sel);
+
+const btnStart     = $('#btnStart');
+const btnStop      = $('#btnStop');
+const btnCopy      = $('#btnCopy');
+const btnClear     = $('#btnClear');
+const statusDot    = $('#statusDot');
+const statusText   = $('#statusText');
+const latencyBadge = $('#latencyBadge');
+const langSelect   = $('#langSelect');
+const finalTextEl  = $('#finalText');
+const placeholder  = $('#placeholder');
+const transcriptSection = $('#transcriptSection');
+
+let ws = null;
+let audioContext = null;
+let mediaStream = null;
+let workletNode = null;
+let finalTranscript = '';
+let recordingStartedAt = 0;
+let latencySamples = [];
+
+function setStatus(state, text) {
+  statusDot.className = 'status-dot ' + state;
+  statusText.textContent = text;
+}
+
+function updateTranscriptUI() {
+  placeholder.style.display = finalTranscript.length > 0 ? 'none' : 'block';
+  finalTextEl.textContent = finalTranscript;
+  transcriptSection.scrollTop = transcriptSection.scrollHeight;
+}
+
+async function getTemporaryApiKey() {
+  const resp = await fetch('/api/temporary-key');
+  if (!resp.ok) throw new Error('Failed to get temporary API key');
+  const data = await resp.json();
+  return data.api_key;
+}
+
+async function startRecording() {
+  btnStart.disabled = true;
+  btnStop.disabled = false;
+  langSelect.disabled = true;
+  setStatus('connecting', 'Connecting...');
+
+  try {
+    const temporaryApiKey = await getTemporaryApiKey();
+
+    ws = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
+
+    ws.onopen = () => {
+      setStatus('connected', 'Connected — sending config...');
+
+      const config = {
+        api_key: temporaryApiKey,
+        model: 'stt-rt-v4',
+        audio_format: 'pcm_s16le',
+        sample_rate: 16000,
+        num_channels: 1,
+        enable_endpoint_detection: true,
+        enable_language_identification: true,
+      };
+
+      const lang = langSelect.value;
+      if (lang) {
+        config.language_hints = [lang];
+      }
+
+      ws.send(JSON.stringify(config));
+
+      recordingStartedAt = performance.now();
+      setStatus('recording', 'Recording — speak now');
+      startMicrophone();
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.error_code) {
+        console.error('Soniox error:', data.error_code, data.error_message);
+        stopRecording();
+        return;
+      }
+
+      if (data.finished) {
+        return;
+      }
+
+      if (data.tokens && data.tokens.length > 0) {
+        const msgReceivedAt = performance.now();
+
+        for (const token of data.tokens) {
+          if (!token.is_final) continue;
+
+          finalTranscript += token.text;
+
+          if (recordingStartedAt > 0 && token.end_ms != null) {
+            const speechEndWall = recordingStartedAt + token.end_ms;
+            const latency = Math.round(msgReceivedAt - speechEndWall);
+            if (latency >= 0) {
+              latencySamples.push(latency);
+              if (latencySamples.length > 10) latencySamples.shift();
+              const avg = Math.round(latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length);
+              latencyBadge.textContent = 'Latency: ' + avg + 'ms';
+            }
+          }
+        }
+
+        updateTranscriptUI();
+      }
+    };
+
+    ws.onerror = () => stopRecording();
+
+    ws.onclose = () => {
+      cleanupAudio();
+      setStatus('', 'Disconnected');
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      langSelect.disabled = false;
+    };
+
+  } catch (err) {
+    console.error('startRecording error:', err);
+    stopRecording();
+  }
+}
+
+async function startMicrophone() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    });
+
+    audioContext = new AudioContext({ sampleRate: 16000 });
+
+    const workletUrl = 'data:application/javascript,' + encodeURIComponent(WORKLET_CODE);
+    await audioContext.audioWorklet.addModule(workletUrl);
+
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+
+    workletNode.port.onmessage = (event) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(event.data);
+      }
+    };
+
+    source.connect(workletNode);
+    workletNode.connect(audioContext.destination);
+
+  } catch (err) {
+    console.error('startMicrophone error:', err);
+    stopRecording();
+  }
+}
+
+function cleanupAudio() {
+  if (workletNode) {
+    workletNode.disconnect();
+    workletNode = null;
+  }
+  if (audioContext) {
+    audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+}
+
+function stopRecording() {
+  cleanupAudio();
+  if (ws) {
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send('');
+      }
+      ws.close(1000);
+    } catch {}
+    ws = null;
+  }
+  recordingStartedAt = 0;
+  latencySamples = [];
+  latencyBadge.textContent = 'Latency: --';
+  setStatus('', 'Disconnected');
+  btnStart.disabled = false;
+  btnStop.disabled = true;
+  langSelect.disabled = false;
+}
+
+btnStart.addEventListener('click', startRecording);
+btnStop.addEventListener('click', stopRecording);
+
+btnCopy.addEventListener('click', () => {
+  const text = finalTranscript.trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    btnCopy.textContent = 'Copied!';
+    setTimeout(() => { btnCopy.textContent = 'Copy'; }, 1500);
+  });
+});
+
+btnClear.addEventListener('click', () => {
+  finalTranscript = '';
+  finalTextEl.textContent = '';
+  placeholder.style.display = 'block';
+});
+</script>
+
+</body>
+</html>
